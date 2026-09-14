@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cyclomind</title>
+  <link rel="stylesheet" href="styles.css?v=20260915f">
+  <script src="src/game.js?v=20260915f" defer></script>
+</head>
+
+<body>
+  <main class="app">
+    <section class="play-area" aria-labelledby="title">
+      <button id="new-button" class="corner-button new-button" type="button" aria-label="New necklace" title="New necklace">+</button>
+      <button id="info-button" class="info-button" type="button" aria-expanded="false" aria-controls="info-panel"
+        aria-label="How to play">i</button>
+
+      <aside id="info-panel" class="info-panel" hidden>
+        <h2>How to play</h2>
+        <ul>
+          <li>Find the hidden necklace of six coloured beads.</li>
+          <li>Select a bead, then choose a colour from the tray.</li>
+          <li>Left / Right arrow keys move the selection around the ring; number keys 1-4 assign a colour.</li>
+          <li>Delete clears the selected bead; Enter submits a full guess.</li>
+          <li>A guess is checked against every rotation of itself, keeping whichever rotation best matches the
+            secret necklace: black discs for exact matches, white discs for right colour in the wrong position.
+            Past guesses are shown in that winning rotation.</li>
+          <li>All six exact matches solves it &mdash; the board locks in place with your winning guess.</li>
+        </ul>
+      </aside>
+
+      <header class="title-block">
+        <h1 id="title">Cyclomind</h1>
+        <p id="status" class="status" aria-live="polite"></p>
+      </header>
+
+      <div class="board-block">
+        <svg id="board" class="board" viewBox="0 0 220 220" role="group" aria-label="Necklace of six beads"></svg>
+
+        <div id="palette" class="palette" aria-label="Colour palette"></div>
+
+        <div class="toolbar" aria-label="Game controls">
+          <button id="submit-button" class="tool-button" type="button">Enter</button>
+        </div>
+      </div>
+
+      <section class="selection-panel" aria-label="Previous guesses">
+        <div id="history" class="selection-lines"></div>
+      </section>
+    </section>
+  </main>
+</body>
+
+</html>
