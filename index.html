@@ -5,29 +5,53 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cyclomind</title>
-  <link rel="stylesheet" href="styles.css?v=20260915k">
-  <script src="src/game.js?v=20260915k" defer></script>
+  <link rel="stylesheet" href="styles.css?v=20260917f">
+  <script src="src/game.js?v=20260917f" defer></script>
 </head>
 
 <body>
   <main class="app">
     <section class="play-area" aria-labelledby="title">
-      <button id="new-button" class="corner-button new-button" type="button" aria-label="New necklace" title="New necklace">+</button>
+      <button id="settings-button" class="corner-button settings-button" type="button" aria-expanded="false"
+        aria-controls="settings-panel" aria-label="Settings"><span aria-hidden="true">&#9881;</span></button>
       <button id="info-button" class="info-button" type="button" aria-expanded="false" aria-controls="info-panel"
         aria-label="How to play">i</button>
+      <button id="new-button" class="corner-button new-button" type="button" aria-label="New game" title="New game">+</button>
+
+      <aside id="settings-panel" class="settings-panel" hidden>
+        <h2>Settings</h2>
+        <form id="settings-form">
+          <label>
+            <span>Positions</span>
+            <select id="position-count-select" name="position-count">
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+            </select>
+          </label>
+          <label>
+            <span>Colours (max)</span>
+            <select id="color-count-select" name="color-count">
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+            </select>
+          </label>
+          <label class="settings-checkbox-row">
+            <input id="show-numbers-checkbox" type="checkbox">
+            <span>Show colour numbers</span>
+          </label>
+          <button class="tool-button settings-apply-button" type="submit">Apply</button>
+        </form>
+      </aside>
 
       <aside id="info-panel" class="info-panel" hidden>
         <h2>How to play</h2>
-        <ul>
-          <li>Find the hidden necklace of six coloured beads.</li>
-          <li>Select a bead, then choose a colour from the tray.</li>
-          <li>Left / Right arrow keys move the selection around the ring; number keys 1-4 assign a colour.</li>
-          <li>Delete clears the selected bead; Enter submits a full guess.</li>
-          <li>A guess is checked against every rotation of itself, keeping whichever rotation best matches the
-            secret necklace: black discs for exact matches, white discs for right colour in the wrong position.
-            Past guesses are shown in that winning rotation.</li>
-          <li>All six exact matches solves it &mdash; the board locks in place with your winning guess.</li>
-        </ul>
+        <ul id="how-to-play-list"></ul>
       </aside>
 
       <header class="title-block">
@@ -36,12 +60,10 @@
       </header>
 
       <div class="board-block">
-        <svg id="board" class="board" viewBox="0 0 220 220" role="group" aria-label="Necklace of six beads"></svg>
-
-        <div id="palette" class="palette" aria-label="Colour palette"></div>
+        <svg id="board" class="board" viewBox="0 0 220 220" role="group" aria-label="Necklace of beads"></svg>
 
         <div class="toolbar" aria-label="Game controls">
-          <button id="submit-button" class="tool-button" type="button">Enter</button>
+          <button id="submit-button" class="tool-button" type="button">Guess</button>
         </div>
       </div>
 
