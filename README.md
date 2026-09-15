@@ -20,6 +20,19 @@ a fixed 3-wide grid, and the upcoming tile stays empty until a full guess is sub
 doesn't preview beads as you place them. Scoring all six exact locks the board: further input is
 disabled and the winning guess stays in place.
 
+On the main board and in the palette, each of the four colours has its own wavy outline
+(bulging in and out 3&ndash;6 times) and its own count of short highlight marks (also 3&ndash;6),
+both randomised once per puzzle in `makeBeadStyles()` and held fixed for its duration &mdash; see
+`wavyCirclePath()` and `appendBeadMarks()`. The small rings in the scoring history stay as plain
+flat circles.
+
+Submitting a guess doesn't clear the board: the ring spins clockwise (`animateRotation()` in
+src/game.js) through the exact number of positions the winning rotation needed, at a constant
+angular rate (`ROTATION_STEP_MS` per position, so a bigger rotation takes proportionally longer
+rather than being squeezed into one fixed-length animation). The board is left showing that same
+rotated arrangement &mdash; matching the new history tile &mdash; ready to tweak (or resubmit
+as-is) for the next guess. Input is disabled for the duration of the spin.
+
 ## Run Locally
 
 From this directory:

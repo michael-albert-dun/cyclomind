@@ -169,6 +169,7 @@ h1 {
   margin: 0 auto;
   overflow: visible;
   touch-action: none;
+  transform-origin: 50% 50%;
 }
 
 .ring-track {
@@ -200,12 +201,20 @@ h1 {
     transform 140ms ease;
 }
 
-.bead-cell:hover .bead-face {
+.bead-cell:hover .bead-face,
+.bead-cell:hover .bead-mark {
   transform: translateY(-1px);
 }
 
 .bead-cell.is-filled .bead-face {
   stroke: rgba(0, 0, 0, 0.22);
+}
+
+.bead-mark {
+  stroke: rgba(255, 255, 255, 0.65);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  transition: transform 140ms ease;
 }
 
 .bead-cell.is-selected {
@@ -224,28 +233,37 @@ h1 {
 }
 
 .palette-button {
-  width: 32px;
-  height: 32px;
-  border: 1px solid rgba(0, 0, 0, 0.22);
+  padding: 0;
+  border: 0;
   border-radius: 50%;
+  background: transparent;
   cursor: pointer;
-  transition: transform 140ms ease, box-shadow 140ms ease;
-  box-shadow: 0 5px 12px rgba(45, 62, 76, 0.07);
+  transition: transform 140ms ease;
 }
 
 .palette-button:hover {
   transform: translateY(-2px);
-  box-shadow: 0 9px 18px rgba(45, 62, 76, 0.12);
 }
 
 .palette-button:disabled {
   cursor: default;
   opacity: 0.4;
-  box-shadow: none;
 }
 
 .palette-button:disabled:hover {
   transform: none;
+}
+
+.palette-bead {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 5px 10px rgba(45, 62, 76, 0.12));
+}
+
+.palette-bead .bead-face {
+  stroke: rgba(0, 0, 0, 0.22);
 }
 
 .toolbar {

@@ -10,14 +10,33 @@ const COLORS = [
 
 const RING = { center: 110, radius: 66, beadRadius: 17 };
 const MINI_RING = { center: 21, radius: 13, beadRadius: 4.5 };
+// Sized so its viewBox-to-pixel ratio matches the board's (viewBox 220,
+// rendered up to 260px wide): 44 / 52 == 220 / 260, so a palette bead comes
+// out the same displayed size as a board bead of the same radius.
+const PALETTE_BEAD = { center: 22, radius: RING.beadRadius };
+const PALETTE_BUTTON_SIZE = 52;
 const CLOCK_LABELS = ["12", "2", "4", "6", "8", "10"];
+
+// Per-colour decorative range: each colour's wavy-outline bump count and
+// highlight-mark count are randomised once per puzzle from this range.
+const BEAD_STYLE_RANGE = { min: 3, max: 6 };
+const BEAD_WAVE_AMPLITUDE_RATIO = 0.16;
+const BEAD_MARK_INNER_RATIO = 0.32;
+const BEAD_MARK_OUTER_RATIO = 0.6;
+
+// Constant angular rate for the submit-rotation animation: total duration
+// scales with the number of steps, rather than the whole spin being squeezed
+// into a fixed time.
+const ROTATION_STEP_MS = 200;
 
 const state = {
   secret: [],
   guess: [],
   selectedBead: 0,
   history: [],
-  solved: false
+  solved: false,
+  animating: false,
+  beadStyles: []
 };
 
 const elements = {
@@ -45,6 +64,8 @@ function startGame() {
   state.selectedBead = 0;
   state.history = [];
   state.solved = false;
+  state.animating = false;
+  state.beadStyles = makeBeadStyles();
   render();
 }
 
@@ -53,7 +74,20 @@ function makeRandomNecklace() {
 }
 
 function randomColorIndex() {
-  return Math.floor(Math.random() * COLORS.length);
+  return randomInt(0, COLORS.length - 1);
+}
+
+// Each colour gets its own wavy-outline bump count and highlight-mark count,
+// randomised once when the puzzle is built and held fixed for its duration.
+function makeBeadStyles() {
+  return COLORS.map(() => ({
+    waveCount: randomInt(BEAD_STYLE_RANGE.min, BEAD_STYLE_RANGE.max),
+    markCount: randomInt(BEAD_STYLE_RANGE.min, BEAD_STYLE_RANGE.max)
+  }));
+}
+
+function randomInt(min, max) {
+  return min + Math.floor(Math.random() * (max - min + 1));
 }
 
 function toggleInfoPanel(event) {
@@ -117,7 +151,6 @@ function makeBeadCell(index) {
   const { x, y } = beadPosition(index, RING);
   const colorIndex = state.guess[index];
   const group = document.createElementNS(SVG_NS, "g");
-  const face = document.createElementNS(SVG_NS, "circle");
 
   group.setAttribute("class", [
     "bead-cell",
@@ -128,7 +161,7 @@ function makeBeadCell(index) {
   group.setAttribute("tabindex", state.solved ? "-1" : "0");
   group.setAttribute("aria-label", beadLabel(index, colorIndex));
   group.addEventListener("click", () => {
-    if (state.solved) {
+    if (state.solved || state.animating) {
       return;
     }
 
@@ -136,16 +169,89 @@ function makeBeadCell(index) {
     render();
   });
 
-  face.setAttribute("class", "bead-face");
-  face.setAttribute("cx", String(x));
-  face.setAttribute("cy", String(y));
-  face.setAttribute("r", String(RING.beadRadius));
-  if (colorIndex !== null) {
+  if (colorIndex === null) {
+    const face = document.createElementNS(SVG_NS, "circle");
+
+    face.setAttribute("class", "bead-face");
+    face.setAttribute("cx", String(x));
+    face.setAttribute("cy", String(y));
+    face.setAttribute("r", String(RING.beadRadius));
+    group.append(face);
+  } else {
+    const style = state.beadStyles[colorIndex];
+    const face = document.createElementNS(SVG_NS, "path");
+
+    face.setAttribute("class", "bead-face");
+    face.setAttribute(
+      "d",
+      wavyCirclePath(x, y, RING.beadRadius, style.waveCount, RING.beadRadius * BEAD_WAVE_AMPLITUDE_RATIO)
+    );
     face.style.fill = COLORS[colorIndex].value;
+    group.append(face);
+    appendBeadMarks(group, x, y, RING.beadRadius, style.markCount);
   }
 
-  group.append(face);
   return group;
+}
+
+// A smooth closed outline whose radius oscillates `waveCount` times around
+// the circle (so it bulges out and dips in that many times), built by
+// sampling the perturbed radius and smoothing the sampled points into a
+// quadratic-bezier loop (each point is a bend; curve passes through the
+// midpoints between consecutive points).
+function wavyCirclePath(cx, cy, radius, waveCount, amplitude) {
+  const steps = Math.max(48, waveCount * 16);
+  const points = [];
+
+  for (let i = 0; i < steps; i += 1) {
+    const theta = (i / steps) * Math.PI * 2;
+    const sampleRadius = radius + amplitude * Math.sin(waveCount * theta);
+
+    points.push([
+      cx + sampleRadius * Math.cos(theta - Math.PI / 2),
+      cy + sampleRadius * Math.sin(theta - Math.PI / 2)
+    ]);
+  }
+
+  return smoothClosedPath(points);
+}
+
+function smoothClosedPath(points) {
+  const count = points.length;
+  const midpoint = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const start = midpoint(points[count - 1], points[0]);
+  let d = `M ${start[0]},${start[1]} `;
+
+  for (let i = 0; i < count; i += 1) {
+    const point = points[i];
+    const next = points[(i + 1) % count];
+    const through = midpoint(point, next);
+
+    d += `Q ${point[0]},${point[1]} ${through[0]},${through[1]} `;
+  }
+
+  return `${d}Z`;
+}
+
+// A ring of short highlight marks evenly spaced inside the bead — its count
+// is the colour's other randomised parameter.
+function appendBeadMarks(group, cx, cy, radius, markCount) {
+  const inner = radius * BEAD_MARK_INNER_RATIO;
+  const outer = radius * BEAD_MARK_OUTER_RATIO;
+
+  for (let i = 0; i < markCount; i += 1) {
+    const theta = (i / markCount) * Math.PI * 2 - Math.PI / 2;
+    const cosTheta = Math.cos(theta);
+    const sinTheta = Math.sin(theta);
+    const mark = document.createElementNS(SVG_NS, "line");
+
+    mark.setAttribute("class", "bead-mark");
+    mark.setAttribute("x1", String(cx + inner * cosTheta));
+    mark.setAttribute("y1", String(cy + inner * sinTheta));
+    mark.setAttribute("x2", String(cx + outer * cosTheta));
+    mark.setAttribute("y2", String(cy + outer * sinTheta));
+    group.append(mark);
+  }
 }
 
 function beadLabel(index, colorIndex) {
@@ -166,14 +272,41 @@ function renderPalette() {
 
     button.type = "button";
     button.className = "palette-button";
-    button.style.background = color.value;
+    button.style.width = `${PALETTE_BUTTON_SIZE}px`;
+    button.style.height = `${PALETTE_BUTTON_SIZE}px`;
     button.disabled = state.solved;
     button.setAttribute("aria-label", color.label);
     button.addEventListener("click", () => {
       setBeadColor(state.selectedBead, index, { advanceSelection: true });
     });
+    button.append(makePaletteBead(color, state.beadStyles[index]));
     elements.palette.append(button);
   });
+}
+
+function makePaletteBead(color, style) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  const face = document.createElementNS(SVG_NS, "path");
+
+  svg.setAttribute("class", "palette-bead");
+  svg.setAttribute("viewBox", `0 0 ${PALETTE_BEAD.center * 2} ${PALETTE_BEAD.center * 2}`);
+
+  face.setAttribute("class", "bead-face");
+  face.setAttribute(
+    "d",
+    wavyCirclePath(
+      PALETTE_BEAD.center,
+      PALETTE_BEAD.center,
+      PALETTE_BEAD.radius,
+      style.waveCount,
+      PALETTE_BEAD.radius * BEAD_WAVE_AMPLITUDE_RATIO
+    )
+  );
+  face.style.fill = color.value;
+
+  svg.append(face);
+  appendBeadMarks(svg, PALETTE_BEAD.center, PALETTE_BEAD.center, PALETTE_BEAD.radius, style.markCount);
+  return svg;
 }
 
 function renderHistory() {
@@ -278,50 +411,87 @@ function renderStatus() {
 function setBeadColor(index, colorIndex, options = {}) {
   const { advanceSelection = false } = options;
 
-  if (state.solved) {
+  if (state.solved || state.animating) {
     return;
   }
 
   state.guess[index] = colorIndex;
 
   if (advanceSelection) {
-    state.selectedBead = nextOpenBeadIndexAfter(index);
+    state.selectedBead = wrapBeadIndex(index + 1);
   }
 
   render();
 }
 
-function nextOpenBeadIndexAfter(index) {
-  for (let offset = 1; offset < BEAD_COUNT; offset += 1) {
-    const nextIndex = wrapBeadIndex(index + offset);
-
-    if (state.guess[nextIndex] === null) {
-      return nextIndex;
-    }
-  }
-
-  return index;
-}
-
 function submitGuess() {
-  if (state.solved || state.guess.some((colorIndex) => colorIndex === null)) {
+  if (state.solved || state.animating || state.guess.some((colorIndex) => colorIndex === null)) {
     return;
   }
 
   const guess = [...state.guess];
-  const { exact, near, rotatedGuess } = scoreGuess(guess);
+  const { exact, near, rotation, rotatedGuess } = scoreGuess(guess);
 
+  if (rotation === 0) {
+    finishSubmit(rotatedGuess, exact, near);
+    return;
+  }
+
+  animateRotation(rotation, () => finishSubmit(rotatedGuess, exact, near));
+}
+
+function finishSubmit(rotatedGuess, exact, near) {
   state.history.push({ guess: rotatedGuess, score: { exact, near } });
   state.solved = exact === BEAD_COUNT;
 
-  // On a win, leave the main board showing the winning guess as placed
-  // instead of clearing it for another attempt.
-  if (!state.solved) {
-    state.guess = Array.from({ length: BEAD_COUNT }, () => null);
-    state.selectedBead = 0;
-  }
+  // Leave the board showing the rotated arrangement — the same orientation
+  // just spun to and recorded in history — rather than clearing it. Clone it
+  // so later edits to the board don't also mutate the stored history entry.
+  state.guess = [...rotatedGuess];
+  state.selectedBead = 0;
 
   render();
+}
+
+// Spins the whole board clockwise by `steps` ring positions at a constant
+// angular rate (ROTATION_STEP_MS per step, so the animation takes longer for
+// a bigger rotation rather than a fixed duration always being stretched or
+// squeezed to fit), landing the guess in the same rotation that will be
+// scored and shown in the history tile. Everything is a plain CSS transform
+// transition on the <svg> itself — no per-frame JS needed.
+function animateRotation(steps, onComplete) {
+  state.animating = true;
+  elements.submitButton.disabled = true;
+  elements.palette.querySelectorAll("button").forEach((button) => {
+    button.disabled = true;
+  });
+
+  const degrees = steps * (360 / BEAD_COUNT);
+  const duration = steps * ROTATION_STEP_MS;
+
+  elements.board.style.transition = "none";
+  elements.board.style.transform = "rotate(0deg)";
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      elements.board.style.transition = `transform ${duration}ms linear`;
+      elements.board.style.transform = `rotate(${degrees}deg)`;
+    });
+  });
+
+  const handleTransitionEnd = (event) => {
+    if (event.target !== elements.board || event.propertyName !== "transform") {
+      return;
+    }
+
+    elements.board.removeEventListener("transitionend", handleTransitionEnd);
+    elements.board.style.transition = "";
+    elements.board.style.transform = "";
+    state.animating = false;
+    onComplete();
+  };
+
+  elements.board.addEventListener("transitionend", handleTransitionEnd);
 }
 
 // Score by rotating the guess (rather than the secret) against the fixed
@@ -353,6 +523,7 @@ function scoreGuess(guess) {
   return {
     exact: bestExact,
     near: total - bestExact,
+    rotation: bestRotation,
     rotatedGuess: rotateClockwise(guess, bestRotation)
   };
 }
@@ -392,7 +563,7 @@ function totalColorOverlap(secretLine, guessLine) {
 }
 
 function handleKeyDown(event) {
-  if (event.metaKey || event.ctrlKey || event.altKey || state.solved) {
+  if (event.metaKey || event.ctrlKey || event.altKey || state.solved || state.animating) {
     return;
   }
 
@@ -429,7 +600,7 @@ function handleKeyDown(event) {
 }
 
 function clearSelectedBead() {
-  if (state.solved) {
+  if (state.solved || state.animating) {
     return;
   }
 
