@@ -27,11 +27,6 @@ let COLORS = ALL_COLORS.slice(0, DEFAULT_COLOR_COUNT);
 // immediately rather than needing a new game.
 let SHOW_COLOR_NUMBERS = false;
 
-// Cache of generated "shapes" for makeRandomNecklace() (see below), keyed by
-// length. Declared up here, ahead of the top-level startGame() call further
-// down, since a `const` isn't usable until its own declaration line runs.
-const SHAPE_CACHE = new Map();
-
 const RING = { center: 110, radius: 66, cordWidth: 3.5, cordDash: 2.6 };
 const MINI_RING = { center: 21, radius: 13 };
 // Fraction of the gap between adjacent bead centres left as visible space
@@ -179,73 +174,52 @@ function startGame(options = {}) {
 // to generic ones — e.g. "every bead the same colour" has exactly 1
 // representative out of colourCount^n, instead of its fair share.
 //
-// True uniform sampling, done from small cached tables instead of Möbius
-// arithmetic or rejection-sampling a candidate each time a game starts:
-// for each divisor d of n, a "shape" of length d is a restricted growth
-// string (RGS) — position 0 is always symbol 0, and each later position
-// either repeats an earlier symbol or introduces the next unused one. This
-// canonicalises away *which* colour is which (colour-relabelling) while
-// keeping position structure, so it enumerates exactly the colour-agnostic
-// patterns a d-bead block can have, independent of how many real colours
-// are in play. Restricting to *aperiodic* shapes (minimal period exactly d,
-// filtered out here) means a shape's number of raw colour-blocks, once
-// tiled to fill the necklace, is genuinely rotation-generic within its own
-// length. For a shape using m distinct symbols, the number of actual raw
-// blocks it instantiates (given k real colours to choose from) is the
-// falling factorial (k)_m = k·(k-1)···(k-m+1) — one per injective colour
-// assignment. Weighting each shape by (k)_m / d and picking one at random,
-// then filling in a random injective colour assignment, produces a
-// uniformly random raw block of length d among ALL of them — which, since
-// every such block has exactly d rotations, is exactly the same as
-// uniformly sampling a necklace of period d. (A shape like "every symbol
-// distinct" has fewer than d canonical rotations, because some rotation of
-// it is indistinguishable from a colour relabelling — but (k)_m / d handles
-// this automatically: it's a statement about how many raw blocks the whole
-// shape stands for, not about any single one of its rotations, so no
-// special-casing is needed for the symmetric cases.)
+// Fixed by rejection sampling: draw a raw colour string uniformly, then
+// accept it with probability 1/period, where period is its minimal rotation
+// period (1 for "every bead the same colour", up to BEAD_COUNT for a fully
+// generic string). A necklace with period p has exactly p raw
+// representatives, so weighting acceptance by 1/p makes every necklace's
+// overall (representatives × acceptance) probability equal, independent of
+// p — the standard rejection-sampling recipe for a uniform draw from the
+// orbits of a group action (here, rotation). Retry on rejection.
 //
-// This also gives us a clean way to just never generate the "degenerate"
-// necklaces that make Guess 0 an unavoidable instant solve (every bead the
-// same colour, or all-but-one): "every bead the same" is exactly the d=1
-// shape, which is skipped outright below; "all but one" only arises from a
-// length-n shape using 2 symbols where one appears just once, filtered out
-// specifically at d = n (a smaller, *repeated* block with that same 2-symbol
-// shape is fine — tiling multiplies both counts, so the minority colour
-// never ends up appearing only once unless there's no repetition at all).
+// This also gives a clean way to skip the "degenerate" necklaces that would
+// make Guess 0 an unavoidable instant solve: every bead the same colour, or
+// all-but-one (which is always full-period — a smaller repeated block would
+// have to duplicate the lone odd bead, so it can never appear just once
+// except at full length).
 function makeRandomNecklace() {
-  const candidates = [];
+  for (;;) {
+    const candidate = Array.from({ length: BEAD_COUNT }, () => randomInt(0, COLORS.length - 1));
 
-  divisorsOf(BEAD_COUNT).forEach((length) => {
-    if (length === 1) {
-      return;
+    if (isDegenerateNecklace(candidate)) {
+      continue;
     }
 
-    shapesOfLength(length).forEach((shape) => {
-      const symbolCount = 1 + Math.max(...shape);
+    if (Math.random() < 1 / necklacePeriod(candidate)) {
+      return candidate;
+    }
+  }
+}
 
-      if (symbolCount > COLORS.length) {
-        return;
-      }
+// True for "every bead the same colour" or "all beads but one the same" —
+// both make Guess 0 an unavoidable instant solve, since the majority
+// colour's beads are interchangeable under rotation-matching.
+function isDegenerateNecklace(beads) {
+  const counts = new Map();
 
-      if (length === BEAD_COUNT && isAllButOneShape(shape)) {
-        return;
-      }
+  beads.forEach((bead) => counts.set(bead, (counts.get(bead) || 0) + 1));
 
-      candidates.push({
-        shape,
-        length,
-        weight: fallingFactorial(COLORS.length, symbolCount) / length
-      });
-    });
-  });
+  return Math.max(...counts.values()) >= beads.length - 1;
+}
 
-  const chosen = pickWeighted(candidates);
-  const symbolCount = 1 + Math.max(...chosen.shape);
-  const colorAssignment = shuffledCopy(Array.from({ length: COLORS.length }, (_, i) => i))
-    .slice(0, symbolCount);
-  const block = chosen.shape.map((symbol) => colorAssignment[symbol]);
-
-  return Array.from({ length: BEAD_COUNT }, (_, index) => block[index % chosen.length]);
+// The smallest positive divisor p of beads.length such that rotating by p
+// leaves the sequence unchanged — equivalently, the number of distinct raw
+// strings that represent this exact necklace under rotation.
+function necklacePeriod(beads) {
+  return divisorsOf(beads.length).find((period) => (
+    beads.every((bead, index) => bead === beads[(index + period) % beads.length])
+  ));
 }
 
 function divisorsOf(n) {
@@ -258,95 +232,6 @@ function divisorsOf(n) {
   }
 
   return divisors;
-}
-
-// All canonical (colour-relabelling-agnostic) aperiodic shapes of a given
-// length, generated once and cached — trivial at our sizes (length ≤ 8).
-function shapesOfLength(length) {
-  if (SHAPE_CACHE.has(length)) {
-    return SHAPE_CACHE.get(length);
-  }
-
-  const shapes = [];
-  const current = new Array(length);
-
-  const build = (position, maxUsed) => {
-    if (position === length) {
-      if (isAperiodicShape(current, length)) {
-        shapes.push([...current]);
-      }
-      return;
-    }
-
-    for (let symbol = 0; symbol <= maxUsed + 1; symbol += 1) {
-      current[position] = symbol;
-      build(position + 1, Math.max(maxUsed, symbol));
-    }
-  };
-
-  build(0, -1);
-  SHAPE_CACHE.set(length, shapes);
-  return shapes;
-}
-
-function isAperiodicShape(shape, length) {
-  for (let period = 1; period < length; period += 1) {
-    if (length % period !== 0) {
-      continue;
-    }
-
-    let periodic = true;
-
-    for (let i = period; i < length; i += 1) {
-      if (shape[i] !== shape[i - period]) {
-        periodic = false;
-        break;
-      }
-    }
-
-    if (periodic) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-// True for a length-n shape that uses exactly 2 symbols where one of them
-// appears only once (i.e. "all beads but one the same colour").
-function isAllButOneShape(shape) {
-  if (1 + Math.max(...shape) !== 2) {
-    return false;
-  }
-
-  const symbol1Count = shape.filter((symbol) => symbol === 1).length;
-
-  return symbol1Count === 1 || symbol1Count === shape.length - 1;
-}
-
-function fallingFactorial(k, m) {
-  let result = 1;
-
-  for (let i = 0; i < m; i += 1) {
-    result *= k - i;
-  }
-
-  return result;
-}
-
-function pickWeighted(candidates) {
-  const total = candidates.reduce((sum, candidate) => sum + candidate.weight, 0);
-  let roll = Math.random() * total;
-
-  for (const candidate of candidates) {
-    roll -= candidate.weight;
-
-    if (roll <= 0) {
-      return candidate;
-    }
-  }
-
-  return candidates[candidates.length - 1];
 }
 
 // A random permutation of the secret's own beads that isn't (under any

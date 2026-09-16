@@ -51,20 +51,18 @@ holds one of the secret's own beads, and every move is a swap between two neckla
 equivalence classes), not over raw colour strings — those aren't the same thing, since a necklace's
 number of representative strings equals its minimal period, so naive per-position random sampling
 drastically under-samples high-symmetry necklaces (a mono-colour necklace has exactly 1
-representative out of `colourCount^n`, instead of its fair share). It builds this up from small
-cached tables of colour-agnostic "shapes" (restricted growth strings) per length, rather than
-re-deriving counts via Möbius arithmetic or rejection-sampling a candidate every time a game starts
-&mdash; see the large comment above `makeRandomNecklace()` for the full derivation, including the
-subtlety that a rotation can coincide with a colour relabelling for symmetric shapes (e.g. "every
-bead a different colour") without needing any special-case handling. This also gives a clean way to
-just never generate the "degenerate" necklaces that would make Guess 0 an unavoidable instant solve
-(mono-colour, or all-but-one beads the same colour, each having exactly one possible arrangement)
-&mdash; the length-1 shape (mono-colour) is skipped outright, and the length-n two-symbol shapes
-with a lone odd-one-out are filtered specifically at full length (a smaller *repeated* block with
-that same shape is fine, since tiling multiplies both colour counts, so the minority colour never
-ends up appearing only once). Verified empirically (200k+ trials at a couple of settings) against
-directly-enumerated ground truth: exactly the expected number of necklace classes shows up, in
-close-to-uniform proportions, with zero degenerate secrets generated.
+representative out of `colourCount^n`, instead of its fair share). It uses rejection sampling: draw
+a raw colour string uniformly, then accept it with probability `1/period` (its minimal rotation
+period, from `necklacePeriod()`) and retry otherwise &mdash; since a necklace with period `p` has
+exactly `p` raw representatives, weighting acceptance by `1/p` makes every necklace's overall
+(representatives &times; acceptance) probability equal regardless of `p`, the standard recipe for a
+uniform draw from the orbits of a group action (here, rotation). This also gives a clean way to skip
+the "degenerate" necklaces that would make Guess 0 an unavoidable instant solve (mono-colour, or
+all-but-one beads the same colour) &mdash; `isDegenerateNecklace()` rejects both outright, and
+all-but-one is always full-period anyway (a smaller repeated block would have to duplicate the lone
+odd bead, so it can never appear just once except at full length). Verified empirically (400k
+trials at a few small settings, chi-square against directly-enumerated ground truth) to match a
+uniform distribution over the non-degenerate classes.
 
 - **Number keys** (1 up to the current position count) swap the currently selected necklace spot
   with that position, then advance the selection one step clockwise.
