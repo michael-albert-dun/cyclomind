@@ -19,22 +19,18 @@
 // counts: array of per-colour counts, e.g. [3, 2, 1] means 3 of colour 0,
 // 2 of colour 1, 1 of colour 2, summing to n = BEAD_COUNT.
 //
-// Returns { n, classes }, where classes is an array of representative
-// sequences (each an array of colour indices, length n), one per distinct
-// necklace (rotation-equivalence class) of that multiset. The
-// representative chosen for each class is its lexicographically smallest
-// rotation, which also happens to be a convenient canonical key for
-// deduplication.
-function enumerateNecklaceClasses(counts) {
+// Standard "distinct permutations of a multiset" backtracking: at each
+// position, try each colour that still has remaining count, so no
+// duplicate raw sequence is ever generated (unlike permuting a flat array
+// and deduping afterwards, which is wasteful once counts repeat). Shared by
+// enumerateNecklaceClasses() (which further dedups by rotation) and
+// enumerateLiteralSequences() (which doesn't — see that function).
+function generateDistinctPermutations(counts) {
   const n = counts.reduce((a, b) => a + b, 0);
   const remaining = [...counts];
   const sequences = [];
   const current = [];
 
-  // Standard "distinct permutations of a multiset" backtracking: at each
-  // position, try each colour that still has remaining count, so no
-  // duplicate raw sequence is ever generated (unlike permuting a flat
-  // array and deduping afterwards, which is wasteful once counts repeat).
   function backtrack() {
     if (current.length === n) {
       sequences.push([...current]);
@@ -53,7 +49,24 @@ function enumerateNecklaceClasses(counts) {
   }
 
   backtrack();
+  return sequences;
+}
 
+// Returns { n, classes }, where classes is an array of representative
+// sequences (each an array of colour indices, length n), one per distinct
+// necklace (rotation-equivalence class) of that multiset. The
+// representative chosen for each class is its lexicographically smallest
+// rotation, which also happens to be a convenient canonical key for
+// deduplication.
+//
+// Used throughout the match-count-only ("hard model") analysis, where a
+// necklace class is the right unit: scoring only depends on the class, not
+// on which literal rotation happens to represent it (see bestExact below).
+// Not the right unit for the rotation-aware analysis — see
+// enumerateLiteralSequences().
+function enumerateNecklaceClasses(counts) {
+  const n = counts.reduce((a, b) => a + b, 0);
+  const sequences = generateDistinctPermutations(counts);
   const seen = new Set();
   const classes = [];
 
@@ -68,6 +81,28 @@ function enumerateNecklaceClasses(counts) {
   });
 
   return { n, classes };
+}
+
+// Returns { n, sequences }: every distinct raw (literal) permutation of the
+// multiset, *not* deduplicated by rotation — i.e. one entry per literal
+// bead arrangement, exactly the space `state.secret` and a submitted guess
+// actually live in in src/game.js.
+//
+// This is the right unit for the rotation-aware analysis
+// (minimax-rotation.js / expected-rotation.js), because — unlike the exact
+// -match count — the *winning rotation* scoreGuess() reports is not
+// rotation-invariant: it depends on the literal phase of both the secret
+// and the guess, not just which necklace classes they belong to (rotating
+// either one by a constant shifts which rotation index wins). So two
+// literal secrets in the same necklace class are only equivalent for the
+// match-count-only model; under the richer (rotation, exact) feedback they
+// are genuinely distinguishable states, and have to be enumerated
+// separately for the search to be faithful to what the real app reveals.
+function enumerateLiteralSequences(counts) {
+  const n = counts.reduce((a, b) => a + b, 0);
+  const sequences = generateDistinctPermutations(counts);
+
+  return { n, sequences };
 }
 
 // The lexicographically smallest rotation of seq, used as a canonical
@@ -129,6 +164,34 @@ function bestExact(secret, guess) {
   return best;
 }
 
+// The full feedback pair a real submitted guess reveals — not just the
+// exact-match count, but *which* rotation achieved it — literally
+// reproducing scoreGuess()'s loop and tie-break in src/game.js: rotations
+// are tried in increasing order (0, 1, 2, ...) and only a *strictly*
+// greater exact count replaces the current best, so on a tie the smallest
+// rotation found first is kept. That tie-break is exactly the "smallest
+// clockwise rotation among those tied for best" rule described in
+// README.md's "Scoring" section, confirmed against `scoreGuess()` itself
+// rather than assumed. bestExact(secret, guess) above always equals
+// bestRotationAndExact(secret, guess).exact — sanity-checked in
+// buildRichScoreMatrix() below.
+function bestRotationAndExact(secret, guess) {
+  const n = secret.length;
+  let bestExactCount = -1;
+  let bestRotation = 0;
+
+  for (let rotation = 0; rotation < n; rotation += 1) {
+    const exact = countExactMatches(secret, rotateClockwise(guess, rotation));
+
+    if (exact > bestExactCount) {
+      bestExactCount = exact;
+      bestRotation = rotation;
+    }
+  }
+
+  return { rotation: bestRotation, exact: bestExactCount };
+}
+
 // True for "every bead the same colour" or "all beads but one the same",
 // mirroring isDegenerateNecklace() in src/game.js exactly.
 function isDegenerateSequence(beads) {
@@ -167,12 +230,46 @@ function buildScoreMatrix(classes) {
   return matrix;
 }
 
+// Builds the full (rotation, exact) feedback matrix over a list of literal
+// sequences (see enumerateLiteralSequences — this is *not* meant to be
+// called with necklace classes, unlike buildScoreMatrix, precisely because
+// the rotation component isn't rotation-invariant). matrix[i][j] is the
+// feedback guessing sequence j would produce if sequence i were the secret
+// — deliberately *not* assumed symmetric (and not checked for symmetry the
+// way buildScoreMatrix checks its exact-only value): swapping which
+// sequence is "secret" and which is "guess" generally changes the winning
+// rotation, only the exact count is provably symmetric (asserted below,
+// against bestExact, as the one invariant that must hold regardless of
+// order).
+function buildRichScoreMatrix(sequences) {
+  const size = sequences.length;
+  const matrix = Array.from({ length: size }, () => new Array(size));
+
+  for (let i = 0; i < size; i += 1) {
+    for (let j = 0; j < size; j += 1) {
+      const result = bestRotationAndExact(sequences[i], sequences[j]);
+      const exactCheck = bestExact(sequences[i], sequences[j]);
+
+      if (result.exact !== exactCheck) {
+        throw new Error(`bestRotationAndExact/bestExact disagree at (${i},${j})`);
+      }
+
+      matrix[i][j] = result;
+    }
+  }
+
+  return matrix;
+}
+
 module.exports = {
   enumerateNecklaceClasses,
+  enumerateLiteralSequences,
   minimalRotation,
   rotateClockwise,
   countExactMatches,
   bestExact,
+  bestRotationAndExact,
   isDegenerateSequence,
-  buildScoreMatrix
+  buildScoreMatrix,
+  buildRichScoreMatrix
 };

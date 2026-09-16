@@ -102,15 +102,43 @@ function makeSolver(scoreMatrix, n) {
       return result;
     }
 
-    const guessCandidates = pool === "all" ? allIndices : indicesOf(mask, size);
+    // Guess ordering matters only for how much branch-and-bound pruning
+    // below gets to skip — it never changes which guess is reported as
+    // optimal (that's still whichever legal guess achieves the lowest
+    // exhaustively-verified cost). Live candidates tend to be decent
+    // guesses (they're guaranteed to at least separate themselves out via
+    // the score-n bucket), so trying them before non-candidate "probes"
+    // establishes a tight bound early, letting most probes in a large
+    // `pool === "all"` universe get abandoned after only their first
+    // (largest) bucket.
+    const inMask = indicesOf(mask, size);
+
+    let guessCandidates;
+    if (pool === "all") {
+      const inMaskSet = new Set(inMask);
+      guessCandidates = [...inMask, ...allIndices.filter((i) => !inMaskSet.has(i))];
+    } else {
+      guessCandidates = inMask;
+    }
+
     let best = null;
 
     for (const guessIdx of guessCandidates) {
       const buckets = partition(mask, guessIdx);
+
+      // Largest buckets first: a big remaining candidate set is likely (not
+      // guaranteed, but a reliable heuristic) to need more guesses, so
+      // checking it first tends to reach the pruning bound fastest.
+      const entries = [...buckets].sort((a, b) => {
+        const sizeDiff = popcount(b[1]) - popcount(a[1]);
+        return sizeDiff !== 0 ? sizeDiff : a[0] - b[0];
+      });
+
       let worst = 0;
       let useless = false;
+      let pruned = false;
 
-      for (const [score, submask] of buckets) {
+      for (const [score, submask] of entries) {
         if (score === n) continue; // solved immediately by this guess
 
         // A guess that leaves the *entire* live candidate set unchanged
@@ -123,11 +151,24 @@ function makeSolver(scoreMatrix, n) {
           break;
         }
 
+        // Branch-and-bound: once this guess's worst-case-so-far already
+        // matches or exceeds the best total cost found so far, it cannot
+        // possibly improve on it (cost only grows or holds as more
+        // buckets are folded in via max()), so stop evaluating its
+        // remaining buckets. This never changes the final answer — it
+        // only skips recursion whose outcome couldn't matter — and is
+        // verified against the unpruned result on every config small
+        // enough to run both ways (see run.js's cross-check).
+        if (best !== null && worst >= best.cost - 1) {
+          pruned = true;
+          break;
+        }
+
         const sub = solve(submask, pool);
         if (sub.cost > worst) worst = sub.cost;
       }
 
-      if (useless) continue;
+      if (useless || pruned) continue;
 
       const cost = 1 + worst;
 
