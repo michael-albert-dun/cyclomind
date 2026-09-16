@@ -260,9 +260,6 @@ h1 {
   cursor: pointer;
   outline: none;
   -webkit-tap-highlight-color: transparent;
-  /* Chrome/WebKit don't reliably start a native drag from SVG content on
-     draggable="true" alone — this is the standard fix. */
-  -webkit-user-drag: element;
   user-select: none;
 }
 
@@ -307,12 +304,6 @@ h1 {
 .bead-cell.is-selected .bead-face {
   stroke: var(--selected-border);
   stroke-width: 4.5;
-}
-
-.bead-cell.is-drag-over .bead-face {
-  stroke: var(--selected-border);
-  stroke-width: 4.5;
-  stroke-dasharray: 3 2;
 }
 
 .toolbar {

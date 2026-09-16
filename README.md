@@ -2,7 +2,7 @@
 
 A Mastermind variant played on a necklace of coloured beads instead of a row of pegs.
 
-The secret is a cyclic sequence of bead colours (6 positions and up to 4 colours by default; both
+The secret is a cyclic sequence of bead colours (5 positions and up to 4 colours by default; both
 configurable &mdash; see Settings below). Unlike classic Mastermind, you aren't choosing freely
 from an unlimited palette: the necklace starts already full, holding the secret's own beads in
 some scrambled (not correct) order. The puzzle is entirely about position, since the multiset of
@@ -68,13 +68,13 @@ close-to-uniform proportions, with zero degenerate secrets generated.
 
 - **Number keys** (1 up to the current position count) swap the currently selected necklace spot
   with that position, then advance the selection one step clockwise.
-- **Click or tap** a bead to arm it (shown with a gold ring); click/tap a *different* bead to swap
-  it with the armed one, staying armed on the newly-swapped-in bead so several swaps can be chained
-  in a row; click/tap the armed bead again to release it without swapping, e.g. to back out and
-  arm a different starting bead instead (`handleBeadClick()`, `state.armed`). This is the only
-  swap affordance on touch devices, since the HTML5 drag-and-drop API used for mouse drag doesn't
-  fire on touch input.
-- **Drag and drop** one bead directly onto another (mouse only), to swap them.
+- **Click or tap** a bead to arm it (shown with a gold ring), then click/tap a *different* bead to
+  swap it with the armed one — the two beads slide to each other's spot (`animateBeadSwap()`) and
+  nothing is left armed afterwards, so every swap is its own fresh pick of two beads. Click/tap the
+  armed bead again to release it without swapping, e.g. to back out and arm a different starting
+  bead instead (`handleBeadClick()`, `state.armed`). This is the only swap affordance for beads —
+  native HTML5 drag-and-drop was tried and retired, since it never worked on touch input and its
+  unstyled default drag image looked wrong even on desktop.
 - **Left / Right arrow keys** move the selection around the ring; **Enter** (or the **Guess**
   button) submits the current arrangement as the next guess.
 
@@ -132,7 +132,7 @@ The app is plain HTML, CSS, and JavaScript. There is no build step.
 - Click or tap a bead to arm it, then click/tap a different bead to swap them (tap the armed bead
   again to release it without swapping); or use the Left / Right arrow keys to move the selection
   around the ring.
-- Press a number key, or drag one bead onto another (mouse only), to swap two necklace positions.
+- Press a number key to swap two necklace positions.
 - Enter (or the Guess button) submits the current arrangement as a guess.
 - The gear button opens Settings (positions, max colours); the + button starts a new game;
   the i button shows how to play.

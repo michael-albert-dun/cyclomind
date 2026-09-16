@@ -2,7 +2,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 
 const MIN_BEAD_COUNT = 4;
 const MAX_BEAD_COUNT = 8;
-const DEFAULT_BEAD_COUNT = 6;
+const DEFAULT_BEAD_COUNT = 5;
 
 const MIN_COLOR_COUNT = 2;
 const MAX_COLOR_COUNT = 6;
@@ -53,6 +53,9 @@ const BEAD_MARK_OUTER_RATIO = 0.6;
 // into a fixed time.
 const ROTATION_STEP_MS = 400;
 
+// Duration of the slide when two beads trade places (see animateBeadSwap()).
+const BEAD_SWAP_DURATION_MS = 400;
+
 const state = {
   secret: [],
   guess: [],
@@ -62,15 +65,12 @@ const state = {
   // focus. Tapping the armed bead again releases it (armed: false) without
   // swapping, so a pointer user can back out and pick a different starting
   // bead instead of being stuck swapping against whatever was selected.
-  armed: true,
+  armed: false,
   history: [],
   solved: false,
   animating: false,
   beadStyles: []
 };
-
-// Tracks an in-progress HTML5 drag: the necklace index being dragged.
-let dragSource = null;
 
 const elements = {
   board: document.querySelector("#board"),
@@ -147,10 +147,9 @@ function startGame(options = {}) {
   state.secret = urlSecret || makeRandomNecklace();
   state.beadStyles = makeBeadStyles();
   state.selectedBead = 0;
-  state.armed = true;
+  state.armed = false;
   state.solved = false;
   state.animating = false;
-  dragSource = null;
 
   // The necklace starts full, already showing some scrambled (not correct)
   // arrangement of the secret's own beads, scored up front as "Guess 0" —
@@ -672,18 +671,9 @@ function makeBeadCell(index) {
   group.setAttribute("role", "button");
   group.setAttribute("tabindex", state.solved ? "-1" : "0");
   group.setAttribute("aria-label", beadLabel(index, colorIndex));
-  group.setAttribute("draggable", String(canInteract));
+  group.setAttribute("data-bead-index", String(index));
 
   group.addEventListener("click", () => handleBeadClick(index, canInteract));
-  group.addEventListener("dragstart", (event) => handleNecklaceDragStart(event, index));
-  group.addEventListener("dragend", handleDragEnd);
-  group.addEventListener("dragover", handleDragOver);
-  group.addEventListener("dragenter", () => group.classList.add("is-drag-over"));
-  group.addEventListener("dragleave", () => group.classList.remove("is-drag-over"));
-  group.addEventListener("drop", (event) => {
-    group.classList.remove("is-drag-over");
-    handleNecklaceDrop(event, index);
-  });
 
   face.setAttribute("class", "bead-face");
   face.setAttribute(
@@ -881,6 +871,73 @@ function swapNecklaceBeads(indexA, indexB) {
   state.guess[indexB] = temp;
 }
 
+// Slides the two <g> elements currently at these positions to each other's
+// spot (a plain CSS transform, same double-rAF-then-transition technique as
+// animateRotation()), so a swap reads as an exchange instead of an instant
+// colour flip in place. The state mutation and re-render happen only in
+// onComplete, once the animated elements have already arrived exactly where
+// the fresh render will draw them — so the handoff is seamless.
+function animateBeadSwap(indexA, indexB, onComplete) {
+  if (indexA === indexB) {
+    onComplete();
+    return;
+  }
+
+  const groupA = elements.board.querySelector(`[data-bead-index="${indexA}"]`);
+  const groupB = elements.board.querySelector(`[data-bead-index="${indexB}"]`);
+
+  if (!groupA || !groupB) {
+    onComplete();
+    return;
+  }
+
+  const posA = beadPosition(indexA, RING);
+  const posB = beadPosition(indexB, RING);
+  const dx = posB.x - posA.x;
+  const dy = posB.y - posA.y;
+
+  state.animating = true;
+  groupA.style.transition = "none";
+  groupB.style.transition = "none";
+  groupA.style.transform = "translate(0px, 0px)";
+  groupB.style.transform = "translate(0px, 0px)";
+
+  let pendingCount = 2;
+
+  const handleEnd = (event) => {
+    if (event.propertyName !== "transform") {
+      return;
+    }
+
+    pendingCount -= 1;
+
+    if (pendingCount > 0) {
+      return;
+    }
+
+    groupA.removeEventListener("transitionend", handleEnd);
+    groupB.removeEventListener("transitionend", handleEnd);
+    groupA.style.transition = "";
+    groupA.style.transform = "";
+    groupB.style.transition = "";
+    groupB.style.transform = "";
+    state.animating = false;
+    onComplete();
+  };
+
+  groupA.addEventListener("transitionend", handleEnd);
+  groupB.addEventListener("transitionend", handleEnd);
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      groupA.style.transition = `transform ${BEAD_SWAP_DURATION_MS}ms ease`;
+      groupB.style.transition = `transform ${BEAD_SWAP_DURATION_MS}ms ease`;
+      groupA.style.transform = `translate(${dx}px, ${dy}px)`;
+      groupB.style.transform = `translate(${-dx}px, ${-dy}px)`;
+    });
+  });
+}
+
 // Number-key path: swap the selected spot with the given one, then advance
 // the selection one step clockwise.
 function swapAtSelected(targetIndex) {
@@ -888,20 +945,26 @@ function swapAtSelected(targetIndex) {
     return;
   }
 
-  swapNecklaceBeads(state.selectedBead, targetIndex);
-  state.selectedBead = wrapBeadIndex(state.selectedBead + 1);
-  state.armed = true;
-  render();
+  const sourceIndex = state.selectedBead;
+
+  animateBeadSwap(sourceIndex, targetIndex, () => {
+    swapNecklaceBeads(sourceIndex, targetIndex);
+    state.selectedBead = wrapBeadIndex(sourceIndex + 1);
+    state.armed = true;
+    render();
+  });
 }
 
-// Click/tap path (mouse and touch alike, since both fire "click"): the
-// selected bead being "armed" or not disambiguates a tap from a swap.
+// Click/tap path (the only pointer-based swap affordance, now that native
+// drag-and-drop has been retired): the selected bead being "armed" or not
+// disambiguates a tap from a swap.
 // - Nothing armed: arm the tapped bead as the swap source, don't swap yet.
 // - Tap the armed bead again: release it, back to a neutral, nothing-armed
 //   state — lets a pointer user back out when the armed bead isn't one of
 //   the two they actually want to swap.
 // - Tap a different bead while armed: swap it with the armed bead, then
-//   stay armed on the newly-tapped bead so multiple swaps can be chained.
+//   release back to neutral — every swap is its own fresh pick of two
+//   beads, with nothing left armed afterwards.
 function handleBeadClick(index, canInteract) {
   if (!canInteract) {
     return;
@@ -910,50 +973,20 @@ function handleBeadClick(index, canInteract) {
   if (!state.armed) {
     state.selectedBead = index;
     state.armed = true;
+    render();
   } else if (index === state.selectedBead) {
     state.armed = false;
+    render();
   } else {
-    swapNecklaceBeads(state.selectedBead, index);
-    state.selectedBead = index;
+    const sourceIndex = state.selectedBead;
+
+    animateBeadSwap(sourceIndex, index, () => {
+      swapNecklaceBeads(sourceIndex, index);
+      state.selectedBead = index;
+      state.armed = false;
+      render();
+    });
   }
-
-  render();
-}
-
-function handleNecklaceDragStart(event, index) {
-  if (state.solved || state.animating) {
-    event.preventDefault();
-    return;
-  }
-
-  dragSource = index;
-  event.dataTransfer.effectAllowed = "move";
-  event.dataTransfer.setData("text/plain", "");
-}
-
-function handleDragOver(event) {
-  event.preventDefault();
-}
-
-function handleDragEnd() {
-  dragSource = null;
-}
-
-function handleNecklaceDrop(event, index) {
-  event.preventDefault();
-
-  const sourceIndex = dragSource;
-
-  dragSource = null;
-
-  if (sourceIndex === null || state.solved || state.animating) {
-    return;
-  }
-
-  swapNecklaceBeads(sourceIndex, index);
-  state.selectedBead = index;
-  state.armed = true;
-  render();
 }
 
 function submitGuess() {
@@ -981,7 +1014,7 @@ function finishSubmit(rotatedGuess, exact, near) {
   // it so later edits to the board don't also mutate the stored entry.
   state.guess = [...rotatedGuess];
   state.selectedBead = 0;
-  state.armed = true;
+  state.armed = false;
 
   render();
 }
