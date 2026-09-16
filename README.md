@@ -68,7 +68,13 @@ close-to-uniform proportions, with zero degenerate secrets generated.
 
 - **Number keys** (1 up to the current position count) swap the currently selected necklace spot
   with that position, then advance the selection one step clockwise.
-- **Drag and drop** one bead directly onto another, anywhere on the necklace, to swap them.
+- **Click or tap** a bead to arm it (shown with a gold ring); click/tap a *different* bead to swap
+  it with the armed one, staying armed on the newly-swapped-in bead so several swaps can be chained
+  in a row; click/tap the armed bead again to release it without swapping, e.g. to back out and
+  arm a different starting bead instead (`handleBeadClick()`, `state.armed`). This is the only
+  swap affordance on touch devices, since the HTML5 drag-and-drop API used for mouse drag doesn't
+  fire on touch input.
+- **Drag and drop** one bead directly onto another (mouse only), to swap them.
 - **Left / Right arrow keys** move the selection around the ring; **Enter** (or the **Guess**
   button) submits the current arrangement as the next guess.
 
@@ -123,9 +129,10 @@ The app is plain HTML, CSS, and JavaScript. There is no build step.
 
 ## Controls
 
-- Click a bead position to select it, or use the Left / Right arrow keys to move the
-  selection around the ring.
-- Press a number key, or drag one bead onto another, to swap two necklace positions.
+- Click or tap a bead to arm it, then click/tap a different bead to swap them (tap the armed bead
+  again to release it without swapping); or use the Left / Right arrow keys to move the selection
+  around the ring.
+- Press a number key, or drag one bead onto another (mouse only), to swap two necklace positions.
 - Enter (or the Guess button) submits the current arrangement as a guess.
 - The gear button opens Settings (positions, max colours); the + button starts a new game;
   the i button shows how to play.

@@ -57,6 +57,12 @@ const state = {
   secret: [],
   guess: [],
   selectedBead: 0,
+  // Whether selectedBead is "picked up" and ready to swap with the next
+  // different bead tapped/clicked, as opposed to just being the keyboard
+  // focus. Tapping the armed bead again releases it (armed: false) without
+  // swapping, so a pointer user can back out and pick a different starting
+  // bead instead of being stuck swapping against whatever was selected.
+  armed: true,
   history: [],
   solved: false,
   animating: false,
@@ -141,6 +147,7 @@ function startGame(options = {}) {
   state.secret = urlSecret || makeRandomNecklace();
   state.beadStyles = makeBeadStyles();
   state.selectedBead = 0;
+  state.armed = true;
   state.solved = false;
   state.animating = false;
   dragSource = null;
@@ -660,21 +667,14 @@ function makeBeadCell(index) {
 
   group.setAttribute("class", [
     "bead-cell",
-    index === state.selectedBead && !state.solved ? "is-selected" : null
+    index === state.selectedBead && state.armed && !state.solved ? "is-selected" : null
   ].filter(Boolean).join(" "));
   group.setAttribute("role", "button");
   group.setAttribute("tabindex", state.solved ? "-1" : "0");
   group.setAttribute("aria-label", beadLabel(index, colorIndex));
   group.setAttribute("draggable", String(canInteract));
 
-  group.addEventListener("click", () => {
-    if (!canInteract) {
-      return;
-    }
-
-    state.selectedBead = index;
-    render();
-  });
+  group.addEventListener("click", () => handleBeadClick(index, canInteract));
   group.addEventListener("dragstart", (event) => handleNecklaceDragStart(event, index));
   group.addEventListener("dragend", handleDragEnd);
   group.addEventListener("dragover", handleDragOver);
@@ -890,6 +890,33 @@ function swapAtSelected(targetIndex) {
 
   swapNecklaceBeads(state.selectedBead, targetIndex);
   state.selectedBead = wrapBeadIndex(state.selectedBead + 1);
+  state.armed = true;
+  render();
+}
+
+// Click/tap path (mouse and touch alike, since both fire "click"): the
+// selected bead being "armed" or not disambiguates a tap from a swap.
+// - Nothing armed: arm the tapped bead as the swap source, don't swap yet.
+// - Tap the armed bead again: release it, back to a neutral, nothing-armed
+//   state — lets a pointer user back out when the armed bead isn't one of
+//   the two they actually want to swap.
+// - Tap a different bead while armed: swap it with the armed bead, then
+//   stay armed on the newly-tapped bead so multiple swaps can be chained.
+function handleBeadClick(index, canInteract) {
+  if (!canInteract) {
+    return;
+  }
+
+  if (!state.armed) {
+    state.selectedBead = index;
+    state.armed = true;
+  } else if (index === state.selectedBead) {
+    state.armed = false;
+  } else {
+    swapNecklaceBeads(state.selectedBead, index);
+    state.selectedBead = index;
+  }
+
   render();
 }
 
@@ -925,6 +952,7 @@ function handleNecklaceDrop(event, index) {
 
   swapNecklaceBeads(sourceIndex, index);
   state.selectedBead = index;
+  state.armed = true;
   render();
 }
 
@@ -953,6 +981,7 @@ function finishSubmit(rotatedGuess, exact, near) {
   // it so later edits to the board don't also mutate the stored entry.
   state.guess = [...rotatedGuess];
   state.selectedBead = 0;
+  state.armed = true;
 
   render();
 }
@@ -1083,6 +1112,7 @@ function handleKeyDown(event) {
   if (event.key === "ArrowLeft") {
     event.preventDefault();
     state.selectedBead = wrapBeadIndex(state.selectedBead - 1);
+    state.armed = true;
     render();
     return;
   }
@@ -1090,6 +1120,7 @@ function handleKeyDown(event) {
   if (event.key === "ArrowRight") {
     event.preventDefault();
     state.selectedBead = wrapBeadIndex(state.selectedBead + 1);
+    state.armed = true;
     render();
   }
 }
